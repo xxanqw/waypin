@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libgtk-3-dev libgdk-pixbuf2.0-dev wl-clipboard xvfb
+    
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        components: rustfmt, clippy
+        override: true
+    
+    - name: Check formatting
+      run: cargo fmt --all -- --check
+    
+    - name: Run clippy
+      run: cargo clippy --all-targets --all-features -- -D warnings
+    
+    - name: Run unit tests
+      run: cargo test --lib
+    
+    - name: Run integration tests (headless)
+      run: xvfb-run -a cargo test --test integration_tests
+    
+    - name: Build release
+      run: cargo build --release
+    
+    - name: Test binary exists
+      run: test -f target/release/waypin
+
+  build-arch:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    
+    steps:
+    - name: Update system and install dependencies
+      run: |
+        pacman -Syu --noconfirm
+        pacman -S --noconfirm rust gtk3 gdk-pixbuf2 wl-clipboard git
+    
+    - uses: actions/checkout@v3
+    
+    - name: Build with Arch dependencies
+      run: cargo build --release
+    
+    - name: Run tests
+      run: cargo test --lib
