@@ -120,12 +120,6 @@ cargo run
 
 # Run tests
 cargo test
-
-# Format code
-cargo fmt
-
-# Lint code
-cargo clippy
 ```
 
 ---

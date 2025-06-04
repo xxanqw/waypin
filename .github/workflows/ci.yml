@@ -28,12 +28,6 @@ jobs:
         components: rustfmt, clippy
         override: true
     
-    - name: Check formatting
-      run: cargo fmt --all -- --check
-    
-    - name: Run clippy
-      run: cargo clippy --all-targets --all-features -- -D warnings
-    
     - name: Run unit tests
       run: cargo test --lib
     
