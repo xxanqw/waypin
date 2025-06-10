@@ -58,6 +58,38 @@ pub fn get_image_format_from_types(types: &str) -> Option<&'static str> {
     }
 }
 
+pub fn copy_image_to_clipboard(mime_type: &str, data: &[u8]) -> Result<(), String> {
+    if !mime_type.starts_with("image/") {
+        return Err("Invalid image MIME type".to_string());
+    }
+    
+    if data.is_empty() {
+        return Err("Empty image data".to_string());
+    }
+    
+    use std::io::Write;
+    let mut child = std::process::Command::new("wl-copy")
+        .arg("--type")
+        .arg(mime_type)
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn wl-copy: {}", e))?;
+    
+    if let Some(stdin) = child.stdin.as_mut() {
+        stdin.write_all(data)
+            .map_err(|e| format!("Failed to write image data: {}", e))?;
+    }
+    
+    let exit_status = child.wait()
+        .map_err(|e| format!("Failed to wait for wl-copy: {}", e))?;
+    
+    if exit_status.success() {
+        Ok(())
+    } else {
+        Err("wl-copy command failed".to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -121,5 +153,18 @@ mod tests {
         // PNG should have priority when multiple formats are available
         let types = "image/jpeg\nimage/png\nimage/gif";
         assert_eq!(get_image_format_from_types(types), Some("image/png"));
+    }
+
+    #[test]
+    fn test_copy_image_to_clipboard_validation() {
+        // Test invalid MIME type
+        let result = copy_image_to_clipboard("text/plain", &[1, 2, 3]);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Invalid image MIME type");
+        
+        // Test empty data
+        let result = copy_image_to_clipboard("image/png", &[]);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Empty image data");
     }
 }

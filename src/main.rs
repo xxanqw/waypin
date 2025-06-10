@@ -1,15 +1,14 @@
-use std::process::Command;
-use std::io::Write;
-use gtk::prelude::*;
-use gtk::{Application, ApplicationWindow, TextView, Button, Image, Box, Orientation, ScrolledWindow};
 use gtk::gdk_pixbuf::PixbufLoader;
+use gtk::prelude::*;
 use gtk::Adjustment;
+use gtk::{
+    Application, ApplicationWindow, Box, Button, Image, Orientation, ScrolledWindow, TextView,
+};
+use std::io::Write;
+use std::process::Command;
 
 fn run_command(args: &[&str]) -> Option<Vec<u8>> {
-    let output = Command::new(args[0])
-        .args(&args[1..])
-        .output()
-        .ok()?;
+    let output = Command::new(args[0]).args(&args[1..]).output().ok()?;
     if output.status.success() {
         Some(output.stdout)
     } else {
@@ -59,7 +58,10 @@ fn show_clipboard_text(text: &str) {
                 let start = buffer.start_iter();
                 let end = buffer.end_iter();
                 if let Some(text_to_copy) = buffer.text(&start, &end, false) {
-                    let mut child = Command::new("wl-copy").stdin(std::process::Stdio::piped()).spawn().ok();
+                    let mut child = Command::new("wl-copy")
+                        .stdin(std::process::Stdio::piped())
+                        .spawn()
+                        .ok();
                     if let Some(ref mut c) = child {
                         if let Some(stdin) = c.stdin.as_mut() {
                             let _ = stdin.write_all(text_to_copy.as_bytes());
@@ -78,9 +80,11 @@ fn show_clipboard_text(text: &str) {
     app.run();
 }
 
-fn show_clipboard_image(img_data: &[u8], _format: &str) {
+fn show_clipboard_image(img_data: &[u8], mime_type: &str) {
     let app = Application::new(None, Default::default());
-    let img_data = img_data.to_vec();
+    let img_data_owned = img_data.to_vec();
+    let mime_type_owned = mime_type.to_string();
+
     app.connect_activate(move |app| {
         let window = ApplicationWindow::new(app);
         window.set_title("Clipboard Image");
@@ -91,7 +95,7 @@ fn show_clipboard_image(img_data: &[u8], _format: &str) {
         window.set_modal(true);
 
         let loader = PixbufLoader::new();
-        if loader.write(&img_data).is_err() {
+        if loader.write(&img_data_owned).is_err() {
             eprintln!("Failed to load image from clipboard data.");
             return;
         }
@@ -117,12 +121,39 @@ fn show_clipboard_image(img_data: &[u8], _format: &str) {
             scrolled.add(&image);
             vbox.pack_start(&scrolled, true, true, 0);
 
+            // Copy button
+            let copy_btn = Button::with_label("Copy to Clipboard");
+            copy_btn.set_margin_top(10);
+            copy_btn.set_margin_bottom(10);
+            copy_btn.set_margin_start(10);
+            copy_btn.set_margin_end(10);
+            copy_btn.set_halign(gtk::Align::End);
+
+            let img_data_clone = img_data_owned.clone();
+            let mime_type_clone = mime_type_owned.clone();
+            copy_btn.connect_clicked(move |_| {
+                let mut child = Command::new("wl-copy")
+                    .arg("--type")
+                    .arg(&mime_type_clone)
+                    .stdin(std::process::Stdio::piped())
+                    .spawn()
+                    .ok();
+                if let Some(ref mut c) = child {
+                    if let Some(stdin) = c.stdin.as_mut() {
+                        let _ = stdin.write_all(&img_data_clone);
+                    }
+                    let _ = c.wait();
+                }
+            });
+            vbox.pack_start(&copy_btn, false, false, 0);
+
             window.add(&vbox);
 
-            // Set window size to original image size
+            // Set window size to original image size plus button space
             let orig_width = orig_pixbuf.width();
             let orig_height = orig_pixbuf.height();
-            window.set_default_size(orig_width, orig_height);
+            let button_height = 55; // Account for button and margins
+            window.set_default_size(orig_width, orig_height + button_height);
             window.set_size_request(100, 100); // allow smaller resizing
 
             // Clone orig_pixbuf for use in the closure
@@ -138,14 +169,22 @@ fn show_clipboard_image(img_data: &[u8], _format: &str) {
                     );
                     let new_w = (orig_pixbuf_for_closure.width() as f64 * scale).round() as i32;
                     let new_h = (orig_pixbuf_for_closure.height() as f64 * scale).round() as i32;
-                    if let Some(scaled) = orig_pixbuf_for_closure.scale_simple(new_w, new_h, gtk::gdk_pixbuf::InterpType::Bilinear) {
+                    if let Some(scaled) = orig_pixbuf_for_closure.scale_simple(
+                        new_w,
+                        new_h,
+                        gtk::gdk_pixbuf::InterpType::Bilinear,
+                    ) {
                         image_clone.set_from_pixbuf(Some(&scaled));
                     }
                 }
             });
 
             // Set initial image at original size
-            if let Some(scaled) = orig_pixbuf.scale_simple(orig_width, orig_height, gtk::gdk_pixbuf::InterpType::Bilinear) {
+            if let Some(scaled) = orig_pixbuf.scale_simple(
+                orig_width,
+                orig_height,
+                gtk::gdk_pixbuf::InterpType::Bilinear,
+            ) {
                 image.set_from_pixbuf(Some(&scaled));
             }
 
@@ -178,7 +217,10 @@ fn main() {
 
     let args: Vec<String> = std::env::args().collect();
     if args.len() > 1 {
-        eprintln!("Usage: {}\nJust run with no arguments to show image or text from clipboard.", args[0]);
+        eprintln!(
+            "Usage: {}\nJust run with no arguments to show image or text from clipboard.",
+            args[0]
+        );
         std::process::exit(1);
     }
     let types_raw = run_command(&["wl-paste", "--list-types"]).unwrap_or_default();
@@ -187,32 +229,52 @@ fn main() {
         std::process::exit(1);
     }
     let types = String::from_utf8_lossy(&types_raw);
-    let is_image = has_mime_type(&types, "image/png") || has_mime_type(&types, "image/jpeg") || has_mime_type(&types, "image/gif");
-    let is_text = has_mime_type(&types, "text/plain") || has_mime_type(&types, "text/plain;charset=utf-8") || has_mime_type(&types, "UTF8_STRING") || has_mime_type(&types, "TEXT") || has_mime_type(&types, "STRING");
+    let is_image = has_mime_type(&types, "image/png")
+        || has_mime_type(&types, "image/jpeg")
+        || has_mime_type(&types, "image/gif");
+    let is_text = has_mime_type(&types, "text/plain")
+        || has_mime_type(&types, "text/plain;charset=utf-8")
+        || has_mime_type(&types, "UTF8_STRING")
+        || has_mime_type(&types, "TEXT")
+        || has_mime_type(&types, "STRING");
     let is_file = has_mime_type(&types, "text/uri-list");
     if is_file {
         eprintln!("Clipboard contains a file list, ignoring.");
         return;
     } else if is_image {
         println!("Detected image in clipboard.");
-        let mut img_data = run_command(&["wl-paste", "--type", "image/png"]).unwrap_or_default();
-        let mut format = "PNG";
-        if img_data.is_empty() {
+        let mut img_data: Vec<u8>;
+        let mut mime_type: &str; // Made mime_type mutable
+
+        if has_mime_type(&types, "image/png") {
+            img_data = run_command(&["wl-paste", "--type", "image/png"]).unwrap_or_default();
+            mime_type = "image/png";
+        } else if has_mime_type(&types, "image/jpeg") {
             img_data = run_command(&["wl-paste", "--type", "image/jpeg"]).unwrap_or_default();
-            if !img_data.is_empty() {
-                format = "JPEG";
-            } else {
-                img_data = run_command(&["wl-paste", "--type", "image/gif"]).unwrap_or_default();
-                if !img_data.is_empty() {
-                    format = "GIF";
+            mime_type = "image/jpeg";
+        } else if has_mime_type(&types, "image/gif") {
+            img_data = run_command(&["wl-paste", "--type", "image/gif"]).unwrap_or_default();
+            mime_type = "image/gif";
+        } else {
+            // Fallback if specific type check failed but is_image was true (should not happen with current logic)
+            img_data = run_command(&["wl-paste", "--type", "image/png"]).unwrap_or_default();
+            mime_type = "image/png";
+            if img_data.is_empty() {
+                img_data = run_command(&["wl-paste", "--type", "image/jpeg"]).unwrap_or_default();
+                mime_type = "image/jpeg";
+                if img_data.is_empty() {
+                    img_data =
+                        run_command(&["wl-paste", "--type", "image/gif"]).unwrap_or_default();
+                    mime_type = "image/gif";
                 }
             }
         }
+
         if img_data.is_empty() {
             eprintln!("No supported image found in clipboard or wl-paste failed.");
             return;
         }
-        show_clipboard_image(&img_data, format);
+        show_clipboard_image(&img_data, mime_type);
     } else if is_text {
         println!("Detected text in clipboard.");
         let text = run_command(&["wl-paste", "--no-newline"]).unwrap_or_default();

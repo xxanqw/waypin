@@ -1,6 +1,6 @@
 [package]
 name = "waypin"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 authors = ["Ivan Potiienko <contact@xxanqw.pp.ua>"]
 description = "A clipboard viewer for Wayland/X11 with GTK3"
