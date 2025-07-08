@@ -32,6 +32,15 @@ fn show_clipboard_text(text: &str) {
         window.set_keep_above(true);
         window.set_modal(true);
 
+        // Add ESC key binding to close window
+        window.add_events(gtk::gdk::EventMask::KEY_PRESS_MASK);
+        window.connect_key_press_event(move |window, event| {
+            if event.keyval() == gtk::gdk::keys::constants::Escape {
+                window.close();
+            }
+            false.into()
+        });
+
         let vbox = Box::new(Orientation::Vertical, 10);
         vbox.set_margin_top(16);
         vbox.set_margin_bottom(16);
@@ -89,10 +98,35 @@ fn show_clipboard_image(img_data: &[u8], mime_type: &str) {
         let window = ApplicationWindow::new(app);
         window.set_title("Clipboard Image");
         window.set_resizable(true);
+        window.set_decorated(false); // Remove titlebar
 
         window.set_type_hint(gtk::gdk::WindowTypeHint::Dialog);
         window.set_keep_above(true);
         window.set_modal(true);
+
+        // Add drag functionality and motion tracking
+        window.add_events(
+            gtk::gdk::EventMask::BUTTON_PRESS_MASK 
+            | gtk::gdk::EventMask::KEY_PRESS_MASK 
+            | gtk::gdk::EventMask::POINTER_MOTION_MASK
+            | gtk::gdk::EventMask::ENTER_NOTIFY_MASK
+            | gtk::gdk::EventMask::LEAVE_NOTIFY_MASK
+        );
+        
+        window.connect_button_press_event(move |window, event| {
+            if event.button() == 1 { // Left mouse button
+                window.begin_move_drag(1, event.root().0 as i32, event.root().1 as i32, event.time());
+            }
+            false.into()
+        });
+
+        // Add ESC key binding to close window
+        window.connect_key_press_event(move |window, event| {
+            if event.keyval() == gtk::gdk::keys::constants::Escape {
+                window.close();
+            }
+            false.into()
+        });
 
         let loader = PixbufLoader::new();
         if loader.write(&img_data_owned).is_err() {
@@ -104,7 +138,8 @@ fn show_clipboard_image(img_data: &[u8], mime_type: &str) {
             return;
         }
         if let Some(orig_pixbuf) = loader.pixbuf() {
-            let vbox = Box::new(Orientation::Vertical, 0);
+            // Use Overlay to place button on top of image
+            let overlay = gtk::Overlay::new();
 
             // Image widget
             let image = Image::new();
@@ -114,20 +149,17 @@ fn show_clipboard_image(img_data: &[u8], mime_type: &str) {
             // Scrolled window for panning
             let scrolled = ScrolledWindow::new(None::<&Adjustment>, None::<&Adjustment>);
             scrolled.set_policy(gtk::PolicyType::Automatic, gtk::PolicyType::Automatic);
-            scrolled.set_margin_top(0);
-            scrolled.set_margin_bottom(0);
-            scrolled.set_margin_start(0);
-            scrolled.set_margin_end(0);
             scrolled.add(&image);
-            vbox.pack_start(&scrolled, true, true, 0);
+            
+            // Add scrolled window as the main child of overlay
+            overlay.add(&scrolled);
 
-            // Copy button
+            // Copy button as overlay
             let copy_btn = Button::with_label("Copy to Clipboard");
             copy_btn.set_margin_top(10);
-            copy_btn.set_margin_bottom(10);
-            copy_btn.set_margin_start(10);
             copy_btn.set_margin_end(10);
             copy_btn.set_halign(gtk::Align::End);
+            copy_btn.set_valign(gtk::Align::Start);
 
             let img_data_clone = img_data_owned.clone();
             let mime_type_clone = mime_type_owned.clone();
@@ -145,15 +177,87 @@ fn show_clipboard_image(img_data: &[u8], mime_type: &str) {
                     let _ = c.wait();
                 }
             });
-            vbox.pack_start(&copy_btn, false, false, 0);
+            
+            // Add button as overlay
+            overlay.add_overlay(&copy_btn);
 
-            window.add(&vbox);
+            // Button fade functionality
+            use std::rc::Rc;
+            use std::cell::RefCell;
+            
+            let fade_timeout = Rc::new(RefCell::new(None::<gtk::glib::SourceId>));
+            let timer_active = Rc::new(RefCell::new(false));
+            let copy_btn_clone_for_fade = copy_btn.clone();
+            let fade_timeout_clone = fade_timeout.clone();
+            let timer_active_clone = timer_active.clone();
+            
+            // Function to start fade timer
+            let start_fade_timer = move || {
+                // Cancel existing timer if active
+                if *timer_active_clone.borrow() {
+                    if let Some(timeout_id) = fade_timeout_clone.borrow_mut().take() {
+                        timeout_id.remove();
+                    }
+                    *timer_active_clone.borrow_mut() = false;
+                }
+                
+                let copy_btn_for_timeout = copy_btn_clone_for_fade.clone();
+                let timer_active_for_timeout = timer_active_clone.clone();
+                let timeout_id = gtk::glib::timeout_add_seconds_local(3, move || {
+                    copy_btn_for_timeout.set_opacity(0.0);
+                    *timer_active_for_timeout.borrow_mut() = false;
+                    gtk::glib::ControlFlow::Break
+                });
+                *fade_timeout_clone.borrow_mut() = Some(timeout_id);
+                *timer_active_clone.borrow_mut() = true;
+            };
+            
+            // Function to show button
+            let show_button = {
+                let copy_btn_show = copy_btn.clone();
+                let start_timer = start_fade_timer.clone();
+                move || {
+                    copy_btn_show.set_opacity(1.0);
+                    start_timer();
+                }
+            };
 
-            // Set window size to original image size plus button space
+            // Motion event handler
+            let show_button_motion = show_button.clone();
+            window.connect_motion_notify_event(move |_window, _event| {
+                show_button_motion();
+                false.into()
+            });
+
+            // Add motion tracking to overlay as well
+            let show_button_overlay_motion = show_button.clone();
+            overlay.connect_enter_notify_event(move |_overlay, _event| {
+                show_button_overlay_motion();
+                false.into()
+            });
+
+            // Enter/Leave notify handlers
+            let show_button_enter = show_button.clone();
+            window.connect_enter_notify_event(move |_window, _event| {
+                show_button_enter();
+                false.into()
+            });
+
+            let show_button_focus = show_button.clone();
+            window.connect_focus_in_event(move |_window, _event| {
+                show_button_focus();
+                false.into()
+            });
+
+            // Start initial fade timer
+            start_fade_timer();
+
+            window.add(&overlay);
+
+            // Set window size to original image size (no extra space for button now)
             let orig_width = orig_pixbuf.width();
             let orig_height = orig_pixbuf.height();
-            let button_height = 55; // Account for button and margins
-            window.set_default_size(orig_width, orig_height + button_height);
+            window.set_default_size(orig_width, orig_height);
             window.set_size_request(100, 100); // allow smaller resizing
 
             // Clone orig_pixbuf for use in the closure
