@@ -137,7 +137,7 @@ cargo test
 ## 🔮 Roadmap
 
 - [ ] **Document Viewer Support**: View PDF, DOCX, ODT, and other document formats
-- [ ] **GUI Redesign**: Modern interface overhaul with improved user experience
+- [x] **GUI Redesign**: Modern interface overhaul with improved user experience
 - [ ] **Hotkey Support**: Global shortcuts for instant access
 
 ---
