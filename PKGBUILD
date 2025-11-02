@@ -8,7 +8,7 @@ url="https://github.com/xxanqw/waypin"
 license=('GPL3')
 depends=('gtk3' 'gdk-pixbuf2' 'wl-clipboard')
 makedepends=('cargo' 'git')
-source=("git+https://github.com/xxanqw/waypin.git#branch=main")
+source=("git+https://github.com/xxanqw/waypin.git#branch=restoring")
 sha256sums=('SKIP')
 
 build() {
