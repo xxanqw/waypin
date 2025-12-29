@@ -6,7 +6,6 @@ use gtk::{
 };
 use std::io::Write;
 use std::process::Command;
-
 fn run_command(args: &[&str]) -> Option<Vec<u8>> {
     let output = Command::new(args[0]).args(&args[1..]).output().ok()?;
     if output.status.success() {
@@ -149,44 +148,45 @@ fn show_clipboard_image(img_data: &[u8], mime_type: &str) {
 
             window.add(&vbox);
 
-            // Set window size to original image size plus button space
             let orig_width = orig_pixbuf.width();
             let orig_height = orig_pixbuf.height();
-            let button_height = 55; // Account for button and margins
-            window.set_default_size(orig_width, orig_height + button_height);
+            let button_height = 55;
+            let max_default_dim = 1600;
+            let default_w = orig_width.min(max_default_dim);
+            let default_h = (orig_height + button_height).min(max_default_dim);
+            scrolled.set_min_content_width(orig_width);
+            scrolled.set_min_content_height(orig_height);
+            window.set_default_size(default_w, default_h);
             window.set_size_request(100, 100); // allow smaller resizing
 
-            // Clone orig_pixbuf for use in the closure
+            // Clone orig_pixbuf for use in the closure and scale based on scrolled viewport.
             let orig_pixbuf_for_closure = orig_pixbuf.clone();
             let image_clone = image.clone();
-            window.connect_size_allocate(move |_, alloc| {
+            scrolled.connect_size_allocate(move |_, alloc| {
                 let w = alloc.width();
                 let h = alloc.height();
                 if w > 0 && h > 0 {
-                    let scale = f64::min(
-                        w as f64 / orig_pixbuf_for_closure.width() as f64,
-                        h as f64 / orig_pixbuf_for_closure.height() as f64,
+                    let (new_w, new_h) = waypin_lib::compute_scaled_dimensions(
+                        orig_pixbuf_for_closure.width(),
+                        orig_pixbuf_for_closure.height(),
+                        w,
+                        h,
+                        true,
                     );
-                    let new_w = (orig_pixbuf_for_closure.width() as f64 * scale).round() as i32;
-                    let new_h = (orig_pixbuf_for_closure.height() as f64 * scale).round() as i32;
-                    if let Some(scaled) = orig_pixbuf_for_closure.scale_simple(
-                        new_w,
-                        new_h,
-                        gtk::gdk_pixbuf::InterpType::Bilinear,
-                    ) {
-                        image_clone.set_from_pixbuf(Some(&scaled));
+                    if new_w > 0 && new_h > 0 {
+                        if let Some(scaled) = orig_pixbuf_for_closure.scale_simple(
+                            new_w,
+                            new_h,
+                            gtk::gdk_pixbuf::InterpType::Bilinear,
+                        ) {
+                            image_clone.set_from_pixbuf(Some(&scaled));
+                        }
                     }
                 }
             });
 
-            // Set initial image at original size
-            if let Some(scaled) = orig_pixbuf.scale_simple(
-                orig_width,
-                orig_height,
-                gtk::gdk_pixbuf::InterpType::Bilinear,
-            ) {
-                image.set_from_pixbuf(Some(&scaled));
-            }
+            // Set initial image at original size (pixbuf already has native size)
+            image.set_from_pixbuf(Some(&orig_pixbuf));
 
             window.show_all();
             window.present();

@@ -782,7 +782,7 @@ dependencies = [
 
 [[package]]
 name = "waypin"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "gtk",
  "tempfile",

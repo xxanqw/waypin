@@ -17,13 +17,13 @@ pub fn has_mime_type(types: &str, mime: &str) -> bool {
 }
 
 pub fn detect_clipboard_content_type(types: &str) -> ClipboardContentType {
-    let is_image = has_mime_type(types, "image/png") 
-        || has_mime_type(types, "image/jpeg") 
+    let is_image = has_mime_type(types, "image/png")
+        || has_mime_type(types, "image/jpeg")
         || has_mime_type(types, "image/gif");
-    let is_text = has_mime_type(types, "text/plain") 
-        || has_mime_type(types, "text/plain;charset=utf-8") 
-        || has_mime_type(types, "UTF8_STRING") 
-        || has_mime_type(types, "TEXT") 
+    let is_text = has_mime_type(types, "text/plain")
+        || has_mime_type(types, "text/plain;charset=utf-8")
+        || has_mime_type(types, "UTF8_STRING")
+        || has_mime_type(types, "TEXT")
         || has_mime_type(types, "STRING");
     let is_file = has_mime_type(types, "text/uri-list");
 
@@ -62,11 +62,11 @@ pub fn copy_image_to_clipboard(mime_type: &str, data: &[u8]) -> Result<(), Strin
     if !mime_type.starts_with("image/") {
         return Err("Invalid image MIME type".to_string());
     }
-    
+
     if data.is_empty() {
         return Err("Empty image data".to_string());
     }
-    
+
     use std::io::Write;
     let mut child = std::process::Command::new("wl-copy")
         .arg("--type")
@@ -74,20 +74,51 @@ pub fn copy_image_to_clipboard(mime_type: &str, data: &[u8]) -> Result<(), Strin
         .stdin(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| format!("Failed to spawn wl-copy: {}", e))?;
-    
+
     if let Some(stdin) = child.stdin.as_mut() {
         stdin.write_all(data)
             .map_err(|e| format!("Failed to write image data: {}", e))?;
     }
-    
+
     let exit_status = child.wait()
         .map_err(|e| format!("Failed to wait for wl-copy: {}", e))?;
-    
+
     if exit_status.success() {
         Ok(())
     } else {
         Err("wl-copy command failed".to_string())
     }
+}
+
+/// Compute scaled dimensions for an image to fit within `max_w` x `max_h` while preserving
+/// aspect ratio. Returns (width, height) in the same units as inputs. If inputs are invalid
+/// (<= 0) returns (0, 0).
+///
+/// When `allow_upscale` is false the returned dimensions will not exceed the original image size.
+pub fn compute_scaled_dimensions(
+    orig_w: i32,
+    orig_h: i32,
+    max_w: i32,
+    max_h: i32,
+    allow_upscale: bool,
+) -> (i32, i32) {
+    if orig_w <= 0 || orig_h <= 0 || max_w <= 0 || max_h <= 0 {
+        return (0, 0);
+    }
+
+    let scale_w = max_w as f64 / orig_w as f64;
+    let scale_h = max_h as f64 / orig_h as f64;
+    let mut scale = scale_w.min(scale_h);
+
+    if !allow_upscale && scale > 1.0 {
+        scale = 1.0;
+    }
+
+    let new_w = (orig_w as f64 * scale).round() as i32;
+    let new_h = (orig_h as f64 * scale).round() as i32;
+
+    // Ensure we never return negative or zero sizes for valid inputs
+    (new_w.max(0), new_h.max(0))
 }
 
 #[cfg(test)]
@@ -161,10 +192,51 @@ mod tests {
         let result = copy_image_to_clipboard("text/plain", &[1, 2, 3]);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "Invalid image MIME type");
-        
+
         // Test empty data
         let result = copy_image_to_clipboard("image/png", &[]);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "Empty image data");
+    }
+
+    // Tests for the new compute_scaled_dimensions helper
+
+    #[test]
+    fn test_compute_scaled_dimensions_downscale() {
+        // original bigger than max, exact downscale
+        let (w, h) = compute_scaled_dimensions(800, 600, 400, 300, false);
+        assert_eq!(w, 400);
+        assert_eq!(h, 300);
+    }
+
+    #[test]
+    fn test_compute_scaled_dimensions_preserve_ratio() {
+        // width-limited scaling: 1024x512 -> fit into 500x500 => 500x250
+        let (w, h) = compute_scaled_dimensions(1024, 512, 500, 500, false);
+        assert_eq!(w, 500);
+        assert_eq!(h, 250);
+    }
+
+    #[test]
+    fn test_compute_scaled_dimensions_no_upscale() {
+        // When upscaling is disabled, result shouldn't exceed original
+        let (w, h) = compute_scaled_dimensions(200, 100, 800, 800, false);
+        assert_eq!(w, 200);
+        assert_eq!(h, 100);
+    }
+
+    #[test]
+    fn test_compute_scaled_dimensions_allow_upscale() {
+        // When upscaling is allowed, image should scale up to max dimensions
+        let (w, h) = compute_scaled_dimensions(200, 100, 800, 800, true);
+        assert_eq!(w, 800);
+        assert_eq!(h, 400);
+    }
+
+    #[test]
+    fn test_compute_scaled_dimensions_invalid_inputs() {
+        assert_eq!(compute_scaled_dimensions(0, 100, 100, 100, true), (0, 0));
+        assert_eq!(compute_scaled_dimensions(100, -1, 100, 100, true), (0, 0));
+        assert_eq!(compute_scaled_dimensions(100, 100, 0, 100, true), (0, 0));
     }
 }
