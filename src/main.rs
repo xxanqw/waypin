@@ -154,8 +154,8 @@ fn show_clipboard_image(img_data: &[u8], mime_type: &str) {
             let max_default_dim = 1600;
             let default_w = orig_width.min(max_default_dim);
             let default_h = (orig_height + button_height).min(max_default_dim);
-            scrolled.set_min_content_width(orig_width);
-            scrolled.set_min_content_height(orig_height);
+            scrolled.set_min_content_width(1);
+            scrolled.set_min_content_height(1);
             window.set_default_size(default_w, default_h);
             window.set_size_request(100, 100); // allow smaller resizing
 
