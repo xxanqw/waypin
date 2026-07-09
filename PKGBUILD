@@ -1,7 +1,7 @@
 # Maintainer: Ivan Potiienko <contact@xxanqw.pp.ua>
 pkgname=waypin
-pkgver=0.1.8
-pkgrel=2
+pkgver=0.1.9
+pkgrel=1
 pkgdesc="A clipboard viewer for Wayland/X11 with GTK3, written in Rust"
 arch=('x86_64')
 url="https://github.com/xxanqw/waypin"
