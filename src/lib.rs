@@ -1,10 +1,7 @@
 use std::process::Command;
 
 pub fn run_command(args: &[&str]) -> Option<Vec<u8>> {
-    let output = Command::new(args[0])
-        .args(&args[1..])
-        .output()
-        .ok()?;
+    let output = Command::new(args[0]).args(&args[1..]).output().ok()?;
     if output.status.success() {
         Some(output.stdout)
     } else {
@@ -67,21 +64,34 @@ pub fn copy_image_to_clipboard(mime_type: &str, data: &[u8]) -> Result<(), Strin
         return Err("Empty image data".to_string());
     }
 
-    use std::io::Write;
-    let mut child = std::process::Command::new("wl-copy")
-        .arg("--type")
-        .arg(mime_type)
-        .stdin(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("Failed to spawn wl-copy: {}", e))?;
+    copy_to_clipboard(Some(mime_type), data)
+}
 
-    if let Some(stdin) = child.stdin.as_mut() {
-        stdin.write_all(data)
-            .map_err(|e| format!("Failed to write image data: {}", e))?;
+pub fn copy_text_to_clipboard(text: &str) -> Result<(), String> {
+    copy_to_clipboard(None, text.as_bytes())
+}
+
+fn copy_to_clipboard(mime_type: Option<&str>, data: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+    let mut command = std::process::Command::new("wl-copy");
+    if let Some(mime_type) = mime_type {
+        command.arg("--type").arg(mime_type);
     }
 
-    let exit_status = child.wait()
-        .map_err(|e| format!("Failed to wait for wl-copy: {}", e))?;
+    let mut child = command
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn wl-copy: {e}"))?;
+
+    if let Some(stdin) = child.stdin.as_mut() {
+        stdin
+            .write_all(data)
+            .map_err(|e| format!("Failed to write clipboard data: {e}"))?;
+    }
+
+    let exit_status = child
+        .wait()
+        .map_err(|e| format!("Failed to wait for wl-copy: {e}"))?;
 
     if exit_status.success() {
         Ok(())
@@ -150,31 +160,46 @@ mod tests {
     #[test]
     fn test_detect_clipboard_content_type_text() {
         let types = "text/plain\nUTF8_STRING";
-        assert_eq!(detect_clipboard_content_type(types), ClipboardContentType::Text);
+        assert_eq!(
+            detect_clipboard_content_type(types),
+            ClipboardContentType::Text
+        );
     }
 
     #[test]
     fn test_detect_clipboard_content_type_image() {
         let types = "image/png\nimage/jpeg";
-        assert_eq!(detect_clipboard_content_type(types), ClipboardContentType::Image);
+        assert_eq!(
+            detect_clipboard_content_type(types),
+            ClipboardContentType::Image
+        );
     }
 
     #[test]
     fn test_detect_clipboard_content_type_file() {
         let types = "text/uri-list\ntext/plain";
-        assert_eq!(detect_clipboard_content_type(types), ClipboardContentType::File);
+        assert_eq!(
+            detect_clipboard_content_type(types),
+            ClipboardContentType::File
+        );
     }
 
     #[test]
     fn test_detect_clipboard_content_type_unsupported() {
         let types = "application/octet-stream\napplication/pdf";
-        assert_eq!(detect_clipboard_content_type(types), ClipboardContentType::Unsupported);
+        assert_eq!(
+            detect_clipboard_content_type(types),
+            ClipboardContentType::Unsupported
+        );
     }
 
     #[test]
     fn test_get_image_format_from_types() {
         assert_eq!(get_image_format_from_types("image/png"), Some("image/png"));
-        assert_eq!(get_image_format_from_types("image/jpeg"), Some("image/jpeg"));
+        assert_eq!(
+            get_image_format_from_types("image/jpeg"),
+            Some("image/jpeg")
+        );
         assert_eq!(get_image_format_from_types("image/gif"), Some("image/gif"));
         assert_eq!(get_image_format_from_types("text/plain"), None);
     }
