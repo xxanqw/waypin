@@ -50,3 +50,11 @@ systemctl --user enable --now waypin.service
 ```
 
 Resource caps force the daemon into ultra-low-power mode: `MemoryMax=48M`, `Nice=19`, `CPUWeight=20`. The daemon restarts on crash (`Restart=on-failure`).
+
+## Arch Linux package
+
+The package enables both `global-shortcuts` and `pin-on-top`. Pacman prints the Hyprland binding and user-service setup instructions after installation and upgrades. Restart an enabled daemon after an upgrade:
+
+```bash
+systemctl --user restart waypin.service
+```
