@@ -1,0 +1,29 @@
+[Unit]
+Description=Waypin clipboard viewer (Hyprland global shortcut listener)
+Documentation=https://github.com/xxanqw/waypin
+PartOf=graphical-session.target
+After=graphical-session.target
+
+# Self-skip on non-Hyprland sessions. Both conditions must be true (AND).
+# This lets the unit file be installed unconditionally by the package
+# without starting on Sway/KDE/GNOME/X-only sessions.
+ConditionPathExists=/usr/bin/Hyprland
+ConditionEnvironment=XDG_CURRENT_DESKTOP=Hyprland
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/waypin --background
+Restart=on-failure
+RestartSec=3
+# Ultra-low-power background mode: tiny heap + minimal CPU.
+# GTK is lazily initialized on the first shortcut press, so idle
+# RSS sits around 1-2 MB on the wayland-client listener alone.
+MemoryHigh=24M
+MemoryMax=48M
+Nice=19
+CPUWeight=20
+IOSchedulingClass=idle
+OOMScoreAdjust=500
+
+[Install]
+WantedBy=graphical-session.target

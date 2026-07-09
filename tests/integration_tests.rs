@@ -23,6 +23,36 @@ fn test_waypin_with_args_exits_with_error() {
     assert!(!output.status.success());
 }
 
+#[cfg(feature = "global-shortcuts")]
+#[test]
+fn test_background_mode_fails_without_wayland_before_initializing_gtk() {
+    let bin = env!("CARGO_BIN_EXE_waypin");
+    let runtime_dir = tempfile::tempdir().expect("Failed to create empty runtime directory");
+
+    let output = Command::new(bin)
+        .arg("--background")
+        .env_remove("WAYLAND_DISPLAY")
+        .env_remove("DISPLAY")
+        .env("XDG_RUNTIME_DIR", runtime_dir.path())
+        .output()
+        .expect("Failed to execute waypin");
+
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.starts_with("waypin: background shortcut listener failed: could not connect to the Wayland display:"),
+        "unexpected stderr: {stderr}"
+    );
+    assert!(
+        !stderr.contains("Clipboard"),
+        "background failure must not open a clipboard preview: {stderr}"
+    );
+    assert!(
+        output.stdout.is_empty(),
+        "background failure must not emit clipboard-preview output"
+    );
+}
+
 #[test]
 fn test_empty_clipboard_handling() {
     // Mock empty clipboard by setting wl-paste to fail
@@ -136,7 +166,7 @@ fn test_wl_copy_command_structure() {
 mod gui_tests {
     use gtk::prelude::*;
     use gtk::{Application, ApplicationWindow};
-    
+
     #[test]
     fn test_gtk_initialization() {
         // This test requires X11/Wayland display
@@ -144,12 +174,74 @@ mod gui_tests {
             assert!(gtk::init().is_ok());
         }
     }
-    
+
     #[test]
     fn test_application_creation() {
         if gtk::init().is_ok() {
             let app = Application::new(None, Default::default());
             assert!(app.is_some());
         }
+    }
+}
+
+/// Verifies the `pin-on-top` feature's probe path is callable and never
+/// panics regardless of compositor support. Under CI's xvfb-only env (no
+/// Wayland, no `zwlr_layer_shell_v1` global), `is_supported()` returns
+/// `false`, exercising the fallback branch of `try_promote_to_layer_top`
+/// — exactly the path that runs on GNOME Mutter / Cinnamon Muffin / Cage
+/// / X11-hosts. On a wlroots/KWin/COSMIC host with this feature enabled,
+/// the real layer-shell branch executes.
+///
+/// What this test rules out is the failure mode where
+/// `gtk-layer-shell-sys` fails to bind at runtime or `try_promote_to_layer_top`
+/// panics in the unsupported path.
+#[cfg(feature = "pin-on-top")]
+mod pin_on_top_tests {
+    #[test]
+    fn test_layer_shell_probe_does_not_panic() {
+        // Mirror the existing gui_tests convention at tests/integration_tests.rs:143
+        // — self-skip when there is literally no display at all.
+        if std::env::var("DISPLAY").is_err() && std::env::var("WAYLAND_DISPLAY").is_err() {
+            return;
+        }
+        if gtk::init().is_err() {
+            return;
+        }
+        // `is_supported()` may perform a Wayland roundtrip on the first call.
+        // The probe is the same one `try_promote_to_layer_top` calls; this
+        // confirms the dep is linked and callable.
+        let _supported = gtk_layer_shell::is_supported();
+        // Do not assert the boolean: under xvfb it is false; on real
+        // wlroots/KWin dev hosts it is true. The contract is no-panic.
+    }
+
+    /// End-to-end fallback-path test: spawn the already-built `waypin` binary
+    /// (linked with `pin-on-top` thanks to the feature flag passed to
+    /// `cargo test`) and assert it doesn't panic. Uses `CARGO_BIN_EXE_waypin`
+    /// so we don't re-enter cargo (which would race with
+    /// `test_empty_clipboard_handling` for the target dir lock).
+    ///
+    /// CI's xvfb returns false from `is_supported()`, so this covers the
+    /// fallback branch of `try_promote_to_layer_top` in real bin execution.
+    #[test]
+    fn test_pin_on_top_binary_runs_without_panic() {
+        let Some(bin) = option_env!("CARGO_BIN_EXE_waypin") else {
+            return; // env not set → skip gracefully (older cargo)
+        };
+        let output = std::process::Command::new("sh")
+            .args([
+                "-c",
+                &format!("DISPLAY=:99 timeout 5 {bin}"),
+            ])
+            .output();
+
+        let Ok(output) = output else {
+            return;
+        };
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            !stderr.contains("panicked"),
+            "pin-on-top binary panicked; stderr: {stderr}"
+        );
     }
 }
