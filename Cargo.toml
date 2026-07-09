@@ -17,6 +17,14 @@ path = "src/lib.rs"
 
 [dependencies]
 gtk = "0.18.2"
+wayland-client = { version = "0.31", optional = true }
+wayland-backend = { version = "0.3", optional = true }
+wayland-protocols = { version = "0.31", optional = true, features = ["client"] }
+wayland-scanner = { version = "0.31", optional = true }
+# Pinned to 0.8.x: this gir-generated binding is marked UNMAINTAINED upstream
+# but is stable against gtk3-rs 0.18. Audit before any future gtk4 migration
+# (gtk4-layer-shell is a separate crate).
+gtk-layer-shell = { version = "0.8", optional = true, features = ["v0_6"] }
 
 [dev-dependencies]
 tempfile = "3.20"
@@ -24,6 +32,14 @@ tempfile = "3.20"
 [features]
 default = []
 gui-tests = []
+# Enable Hyprland global-shortcut background daemon mode.
+# Requires a Hyprland session at runtime.
+global-shortcuts = ["dep:wayland-client", "dep:wayland-backend", "dep:wayland-protocols", "dep:wayland-scanner"]
+# Pin preview windows always-on-top via wlr-layer-shell `top` layer.
+# Works on wlroots/KWin/COSMIC/etc.; silently falls back to default GTK
+# stacking on GNOME Mutter, Cinnamon Muffin, Cage, and X11 (where
+# `set_keep_above` already handles the EWMH `_NET_WM_STATE_ABOVE` path).
+pin-on-top = ["dep:gtk-layer-shell"]
 
 [profile.test]
 opt-level = 1

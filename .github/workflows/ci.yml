@@ -33,12 +33,40 @@ jobs:
     
     - name: Run integration tests (headless)
       run: xvfb-run -a cargo test --test integration_tests
-    
+
     - name: Build release
       run: cargo build --release
-    
+
     - name: Test binary exists
       run: test -f target/release/waypin
+
+    - name: Build with global-shortcuts feature
+      run: cargo build --features global-shortcuts
+      # Note: this only verifies the wayland-client/scanner crates compile
+      # against the vendored hyprland-global-shortcuts-v1.xml protocol.
+      # Functional shortcut-delivery tests require a Hyprland compositor
+      # and are not run in CI. Failure handling without a compositor is
+      # covered by the following integration test.
+
+    - name: Test global-shortcuts failure handling
+      run: cargo test --features global-shortcuts --test integration_tests
+      # This verifies --background exits cleanly without a Wayland compositor.
+
+    - name: Install gtk-layer-shell (for pin-on-top feature)
+      run: sudo apt-get install -y libgtk-layer-shell-dev
+
+    - name: Build with pin-on-top feature
+      run: cargo build --features pin-on-top
+
+    - name: Build with both features
+      run: cargo build --features "pin-on-top global-shortcuts"
+
+    - name: Run integration tests with pin-on-top (fallback path in CI)
+      run: xvfb-run -a cargo test --features pin-on-top --test integration_tests
+      # CI's xvfb doesn't advertise zwlr_layer_shell_v1, so is_supported()
+      # returns false and the tests exercise the fallback branch of
+      # try_promote_to_layer_top — the same code path that runs on GNOME
+      # Mutter / Cinnamon Muffin / Cage in production.
 
   build-arch:
     runs-on: ubuntu-latest
