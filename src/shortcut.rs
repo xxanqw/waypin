@@ -46,7 +46,7 @@ pub const SHORTCUT_ID: &str = "toggle";
 
 pub const SHORTCUT_DESCRIPTION: &str = "Show clipboard preview";
 pub const SHORTCUT_TRIGGER_DESCRIPTION: &str =
-    "Configure in hyprland.conf: bind = SUPER, V, global, waypin:toggle";
+    "Configure in hyprland.lua: hl.bind(\"SUPER + V\", hl.dsp.global(\"waypin:toggle\"))";
 
 struct ListenerState {
     on_pressed: Arc<dyn Fn() + Send + Sync>,

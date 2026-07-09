@@ -3,8 +3,8 @@ _waypin_hyprland_notice() {
 ==> Waypin Hyprland setup
     The global-shortcut daemon is disabled until you configure it.
 
-    1. Add this to hyprland.conf:
-         bind = SUPER, V, global, waypin:toggle
+    1. Add this to ~/.config/hypr/hyprland.lua:
+         hl.bind("SUPER + V", hl.dsp.global("waypin:toggle"))
 
     2. Reload Hyprland:
          hyprctl reload

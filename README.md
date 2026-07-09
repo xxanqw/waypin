@@ -33,10 +33,10 @@ Outside Hyprland, or when no Wayland display is available, `waypin --background`
 journalctl --user -u waypin.service -f
 ```
 
-### Bind the shortcut in `hyprland.conf`
+### Bind the shortcut in `hyprland.lua`
 
-```conf
-bind = SUPER, V, global, waypin:toggle
+```lua
+hl.bind("SUPER + V", hl.dsp.global("waypin:toggle"))
 ```
 
 ### systemd user service (recommended)
