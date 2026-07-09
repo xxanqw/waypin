@@ -101,8 +101,12 @@ fn read_clipboard() -> Option<ClipboardContent> {
 
 fn show_clipboard_content(app: &Application, content: &ClipboardContent) {
     match content {
-        ClipboardContent::Text(text) => build_text_window(app, text),
-        ClipboardContent::Image(data, mime_type) => build_image_window(app, data, mime_type),
+        ClipboardContent::Text(text) => {
+            build_text_window(app, text);
+        }
+        ClipboardContent::Image(data, mime_type) => {
+            build_image_window(app, data, mime_type);
+        }
     };
 }
 
