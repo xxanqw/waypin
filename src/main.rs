@@ -4,20 +4,10 @@ use gtk::Adjustment;
 use gtk::{
     Application, ApplicationWindow, Box, Button, Image, Orientation, ScrolledWindow, TextView,
 };
-use std::io::Write;
-use std::process::Command;
-fn run_command(args: &[&str]) -> Option<Vec<u8>> {
-    let output = Command::new(args[0]).args(&args[1..]).output().ok()?;
-    if output.status.success() {
-        Some(output.stdout)
-    } else {
-        None
-    }
-}
-
-fn has_mime_type(types: &str, mime: &str) -> bool {
-    types.lines().any(|line| line == mime)
-}
+use waypin_lib::{
+    copy_image_to_clipboard, copy_text_to_clipboard, detect_clipboard_content_type,
+    get_image_format_from_types, run_command, ClipboardContentType,
+};
 
 fn show_clipboard_text(text: &str) {
     let app = Application::new(None, Default::default());
@@ -57,15 +47,8 @@ fn show_clipboard_text(text: &str) {
                 let start = buffer.start_iter();
                 let end = buffer.end_iter();
                 if let Some(text_to_copy) = buffer.text(&start, &end, false) {
-                    let mut child = Command::new("wl-copy")
-                        .stdin(std::process::Stdio::piped())
-                        .spawn()
-                        .ok();
-                    if let Some(ref mut c) = child {
-                        if let Some(stdin) = c.stdin.as_mut() {
-                            let _ = stdin.write_all(text_to_copy.as_bytes());
-                        }
-                        let _ = c.wait();
+                    if let Err(error) = copy_text_to_clipboard(&text_to_copy) {
+                        eprintln!("Failed to copy text to clipboard: {error}");
                     }
                 }
             }
@@ -131,17 +114,8 @@ fn show_clipboard_image(img_data: &[u8], mime_type: &str) {
             let img_data_clone = img_data_owned.clone();
             let mime_type_clone = mime_type_owned.clone();
             copy_btn.connect_clicked(move |_| {
-                let mut child = Command::new("wl-copy")
-                    .arg("--type")
-                    .arg(&mime_type_clone)
-                    .stdin(std::process::Stdio::piped())
-                    .spawn()
-                    .ok();
-                if let Some(ref mut c) = child {
-                    if let Some(stdin) = c.stdin.as_mut() {
-                        let _ = stdin.write_all(&img_data_clone);
-                    }
-                    let _ = c.wait();
+                if let Err(error) = copy_image_to_clipboard(&mime_type_clone, &img_data_clone) {
+                    eprintln!("Failed to copy image to clipboard: {error}");
                 }
             });
             vbox.pack_start(&copy_btn, false, false, 0);
@@ -192,29 +166,12 @@ fn show_clipboard_image(img_data: &[u8], mime_type: &str) {
             window.present();
         } else {
             eprintln!("Failed to decode image data.");
-            return;
         }
     });
     app.run();
 }
 
 fn main() {
-    // Force GTK to use X11 backend even on Wayland
-    unsafe {
-        std::env::set_var("GDK_BACKEND", "x11");
-    }
-
-    gtk::init().expect("Failed to initialize GTK");
-
-    const ICON: &[u8] = include_bytes!("icon.ico");
-    // Load icon from ICON bytes and set as default application icon
-    let loader = gtk::gdk_pixbuf::PixbufLoader::new();
-    if loader.write(ICON).is_ok() && loader.close().is_ok() {
-        if let Some(icon_pixbuf) = loader.pixbuf() {
-            gtk::Window::set_default_icon(&icon_pixbuf);
-        }
-    }
-
     let args: Vec<String> = std::env::args().collect();
     if args.len() > 1 {
         eprintln!(
@@ -229,62 +186,51 @@ fn main() {
         std::process::exit(1);
     }
     let types = String::from_utf8_lossy(&types_raw);
-    let is_image = has_mime_type(&types, "image/png")
-        || has_mime_type(&types, "image/jpeg")
-        || has_mime_type(&types, "image/gif");
-    let is_text = has_mime_type(&types, "text/plain")
-        || has_mime_type(&types, "text/plain;charset=utf-8")
-        || has_mime_type(&types, "UTF8_STRING")
-        || has_mime_type(&types, "TEXT")
-        || has_mime_type(&types, "STRING");
-    let is_file = has_mime_type(&types, "text/uri-list");
-    if is_file {
+    let clipboard_content_type = detect_clipboard_content_type(&types);
+
+    if clipboard_content_type == ClipboardContentType::File {
         eprintln!("Clipboard contains a file list, ignoring.");
         return;
-    } else if is_image {
-        println!("Detected image in clipboard.");
-        let mut img_data: Vec<u8>;
-        let mut mime_type: &str; // Made mime_type mutable
-
-        if has_mime_type(&types, "image/png") {
-            img_data = run_command(&["wl-paste", "--type", "image/png"]).unwrap_or_default();
-            mime_type = "image/png";
-        } else if has_mime_type(&types, "image/jpeg") {
-            img_data = run_command(&["wl-paste", "--type", "image/jpeg"]).unwrap_or_default();
-            mime_type = "image/jpeg";
-        } else if has_mime_type(&types, "image/gif") {
-            img_data = run_command(&["wl-paste", "--type", "image/gif"]).unwrap_or_default();
-            mime_type = "image/gif";
-        } else {
-            // Fallback if specific type check failed but is_image was true (should not happen with current logic)
-            img_data = run_command(&["wl-paste", "--type", "image/png"]).unwrap_or_default();
-            mime_type = "image/png";
-            if img_data.is_empty() {
-                img_data = run_command(&["wl-paste", "--type", "image/jpeg"]).unwrap_or_default();
-                mime_type = "image/jpeg";
-                if img_data.is_empty() {
-                    img_data =
-                        run_command(&["wl-paste", "--type", "image/gif"]).unwrap_or_default();
-                    mime_type = "image/gif";
-                }
-            }
-        }
-
-        if img_data.is_empty() {
-            eprintln!("No supported image found in clipboard or wl-paste failed.");
-            return;
-        }
-        show_clipboard_image(&img_data, mime_type);
-    } else if is_text {
-        println!("Detected text in clipboard.");
-        let text = run_command(&["wl-paste", "--no-newline"]).unwrap_or_default();
-        if text.is_empty() {
-            eprintln!("No text found in clipboard or wl-paste failed.");
-            return;
-        }
-        show_clipboard_text(&String::from_utf8_lossy(&text));
-    } else {
+    }
+    if clipboard_content_type == ClipboardContentType::Unsupported {
         eprintln!("Clipboard does not contain supported image or text types.");
         std::process::exit(1);
+    }
+
+    if let Err(error) = gtk::init() {
+        eprintln!("Failed to initialize GTK: {error}");
+        std::process::exit(1);
+    }
+
+    const ICON: &[u8] = include_bytes!("icon.ico");
+    let loader = gtk::gdk_pixbuf::PixbufLoader::new();
+    if loader.write(ICON).is_ok() && loader.close().is_ok() {
+        if let Some(icon_pixbuf) = loader.pixbuf() {
+            gtk::Window::set_default_icon(&icon_pixbuf);
+        }
+    }
+
+    match clipboard_content_type {
+        ClipboardContentType::Image => {
+            let mime_type = get_image_format_from_types(&types)
+                .expect("image clipboard content must have a supported MIME type");
+            println!("Detected image in clipboard.");
+            let image_data = run_command(&["wl-paste", "--type", mime_type]).unwrap_or_default();
+            if image_data.is_empty() {
+                eprintln!("No supported image found in clipboard or wl-paste failed.");
+                return;
+            }
+            show_clipboard_image(&image_data, mime_type);
+        }
+        ClipboardContentType::Text => {
+            println!("Detected text in clipboard.");
+            let text = run_command(&["wl-paste", "--no-newline"]).unwrap_or_default();
+            if text.is_empty() {
+                eprintln!("No text found in clipboard or wl-paste failed.");
+                return;
+            }
+            show_clipboard_text(&String::from_utf8_lossy(&text));
+        }
+        ClipboardContentType::File | ClipboardContentType::Unsupported => unreachable!(),
     }
 }
